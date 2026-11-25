@@ -7,11 +7,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import vm from 'vm';
+import { createRequire } from 'module';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { resolveAntigravityPaths, resolveAsarPrefix } from './locate-antigravity.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 const { installDir, asarPath } = resolveAntigravityPaths(process.argv.slice(2));
 const ASAR_CMD = resolveAsarPrefix(__dirname);
 
@@ -25,6 +27,7 @@ try {
 
   const utilsContent = fs.readFileSync(path.join(tempDir, 'dist', 'utils.js'), 'utf8');
   const preloadContent = fs.readFileSync(path.join(tempDir, 'dist', 'preload.js'), 'utf8');
+  const ipcContent = fs.readFileSync(path.join(tempDir, 'dist', 'ipcHandlers.js'), 'utf8');
   const i18nPath = path.join(tempDir, 'dist', 'i18nZh.js');
   if (!fs.existsSync(i18nPath)) {
     throw new Error('dist/i18nZh.js 不存在，汉化补丁未注入！');
@@ -34,10 +37,21 @@ try {
 
   const utilsMatches = utilsContent.match(/const __runZhOverlay/g) || [];
   const preloadMatches = preloadContent.match(/\[antigravity-zh-preload-start\]/g) || [];
+  const hasContextMenu = ipcContent.includes('localizeContextMenuLabel');
   console.log(`- utils.js __runZhOverlay 声明次数: ${utilsMatches.length}`);
   console.log(`- preload.js 注入块次数: ${preloadMatches.length}`);
-  if (utilsMatches.length > 1 || preloadMatches.length !== 1) {
-    throw new Error('检测到重复注入或缺少 preload 注入！');
+  console.log(`- ipcHandlers.js 原生右键菜单汉化: ${hasContextMenu ? '已注入' : '未注入'}`);
+  if (utilsMatches.length > 1 || preloadMatches.length !== 1 || !hasContextMenu) {
+    throw new Error('检测到重复注入或缺少关键注入块！');
+  }
+
+  // 验证 Node 主进程 require('./i18nZh') 导出正常
+  const nodeMod = require(i18nPath);
+  if (!nodeMod || typeof nodeMod.translatePhrase !== 'function') {
+    throw new Error('dist/i18nZh.js 在 Node 主进程下未正确导出 translatePhrase！');
+  }
+  if (nodeMod.translatePhrase('Permission preset') !== '权限预设') {
+    throw new Error('Node 主进程 translatePhrase 校验失败！');
   }
 
   const samples = [
@@ -96,7 +110,7 @@ try {
       throw new Error(`翻译校验失败: "${src}" => "${actual}" (期望 "${expected}")`);
     }
   }
-  console.log(`✓ 校验通过：语法、注入幂等性与 ${samples.length} 项核心翻译测试全部 PASS`);
+  console.log(`✓ 校验通过：语法、Node 主进程导出、注入幂等性与 ${samples.length} 项核心翻译测试全部 PASS`);
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }

@@ -30,15 +30,15 @@
      4. 备份官方原版 `app.asar` 到 `app.asar.orig`（后续 Antigravity 更新后重跑会自动刷新备份）；
      5. 注入汉化覆盖层、原生菜单、托盘、右键菜单等补丁并重新打包；
      6. 自动配置两重启动保障：
-        - **Windows 开机/登录静默自检**：每次开机登录时在后台无弹窗检测 `app.asar`；已是最新汉化则 **5ms 内自动跳过**，若被官方更新覆盖则自动静默重新汉化；
-        - **桌面快捷方式「Antigravity (自动汉化)」**：以后每次通过该图标启动 Antigravity，都会在打开前瞬间完成校验/补丁后再启动客户端。
+        - **Windows 任务计划开机/登录静默自检**：通过 Windows 任务计划程序 (`AntigravityZhAutoPatch`) 在每次登录时后台无弹窗检测 `app.asar`（避免被电脑管家拦截启动项）；已是最新汉化则 **毫秒级自动跳过**，若被官方更新覆盖则自动静默重新汉化；
+        - **桌面快捷方式自动接管**：自动接管桌面原 `Antigravity` 快捷方式（原快捷方式自动备份为 `Antigravity.orig.lnk.bak` 并保留原有启动参数），同时创建 `Antigravity (自动汉化)` 图标，每次启动前都会先核对/补丁再打开客户端。
 
 3. **更多自动启动选项**
-   - 若想同时把桌面原有的 `Antigravity` 图标也替换为自动汉化启动，可运行：
+   - 若只想新增 `Antigravity (自动汉化)` 快捷方式而不接管原有的 `Antigravity` 桌面图标，可运行：
      ```bash
-     node setup-autostart.mjs enable --replace-shortcut
+     node setup-autostart.mjs enable --no-replace-shortcut
      ```
-   - 如需单独开启/关闭自动启动，可双击 **`开启自动汉化.bat`** / **`关闭自动汉化.bat`**（执行 `一键还原英文.bat` 时也会自动关闭自启动）。
+   - 如需单独开启/关闭自动启动，可双击 **`开启自动汉化.bat`** / **`关闭自动汉化.bat`**（执行 `一键还原英文.bat` 时也会自动关闭自启动并还原原桌面图标）。
 
 ---
 
