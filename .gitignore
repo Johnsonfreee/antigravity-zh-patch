@@ -1,0 +1,8 @@
+node_modules/
+npm-debug.log*
+*.log
+*.tmp
+launch-antigravity.vbs
+startup-check.vbs
+.DS_Store
+Thumbs.db

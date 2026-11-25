@@ -1,0 +1,19 @@
+{
+  "name": "antigravity-zh-patch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Antigravity 桌面端简体中文汉化补丁（支持一键汉化、开机与启动自动汉化、一键还原英文）",
+  "scripts": {
+    "apply": "node apply-antigravity-zh.mjs",
+    "apply:auto": "node apply-antigravity-zh.mjs --if-needed",
+    "revert": "node revert-antigravity-zh.mjs",
+    "verify": "node verify-patch.mjs",
+    "sync": "node sync-overlay.mjs",
+    "autostart:on": "node setup-autostart.mjs enable",
+    "autostart:off": "node setup-autostart.mjs disable",
+    "autostart:status": "node setup-autostart.mjs status"
+  },
+  "dependencies": {
+    "@electron/asar": "4.3.2"
+  }
+}
