@@ -2,7 +2,8 @@
 /**
  * 配置或取消 Windows 自动汉化启动项：
  * 1. Windows 任务计划程序开机/登录静默自检（避免被管家软件拦截 Run 注册表项）
- * 2. 生成启动器并默认接管桌面原 Antigravity 快捷方式（保留原启动参数，同时创建「Antigravity (自动汉化)」图标）
+ * 2. 生成两段式启动器（先毫秒级校验/必要时补丁，再以正常窗口直接拉起 Antigravity.exe），
+ *    并接管桌面、开始菜单与任务栏 Antigravity 快捷方式（保留原启动参数）
  */
 
 import fs from 'fs';
@@ -42,12 +43,19 @@ function getSpecialFolder(name) {
   }
 }
 
+const appDataDir = process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming');
 const desktopDir = getSpecialFolder('Desktop') || path.join(process.env.USERPROFILE || '', 'Desktop');
-const startMenuProgramsDir = getSpecialFolder('Programs') || path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+const startMenuProgramsDir = getSpecialFolder('Programs') || path.join(appDataDir, 'Microsoft', 'Windows', 'Start Menu', 'Programs');
+const taskBarDir = path.join(appDataDir, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar');
+
 const desktopAutoLnk = path.join(desktopDir, 'Antigravity (自动汉化).lnk');
 const startMenuAutoLnk = path.join(startMenuProgramsDir, 'Antigravity (自动汉化).lnk');
-const desktopOrigLnk = path.join(desktopDir, 'Antigravity.lnk');
-const desktopOrigBak = path.join(desktopDir, 'Antigravity.orig.lnk.bak');
+
+const managedShortcuts = [
+  { name: '桌面', lnk: path.join(desktopDir, 'Antigravity.lnk'), bak: path.join(desktopDir, 'Antigravity.orig.bak.lnk'), legacyBak: path.join(desktopDir, 'Antigravity.orig.lnk.bak') },
+  { name: '开始菜单', lnk: path.join(startMenuProgramsDir, 'Antigravity.lnk'), bak: path.join(startMenuProgramsDir, 'Antigravity.orig.bak.lnk') },
+  { name: '任务栏固定项', lnk: path.join(taskBarDir, 'Antigravity.lnk'), bak: path.join(taskBarDir, 'Antigravity.orig.bak.lnk') }
+];
 
 function readShortcutInfo(lnkPath) {
   if (!fs.existsSync(lnkPath)) return null;
@@ -134,17 +142,24 @@ function deleteRunRegistryValues() {
   }
 }
 
+function isWrappedShortcut(lnkPath) {
+  const info = readShortcutInfo(lnkPath);
+  return Boolean(info && info.args && info.args.includes('launch-antigravity.vbs'));
+}
+
 if (action === 'status') {
   const taskExists = queryScheduledTask();
   const regVal = readRunRegistryValue();
-  const origInfo = readShortcutInfo(desktopOrigLnk);
-  const wrappedOrig = Boolean(origInfo && origInfo.args && origInfo.args.includes('launch-antigravity.vbs'));
   console.log('=== Antigravity 自动汉化状态 ===');
   console.log('- Windows 任务计划程序 (开机/登录自检):', taskExists ? `已启用 (${TASK_NAME})` : '未启用');
   console.log('- 备用 Run 注册表项:', regVal ? `已启用 (${REG_RUN_KEY}\\${REG_VALUE_NAME})` : '未启用');
   console.log('- 开机检查脚本:', fs.existsSync(startupVbs) ? startupVbs : '未生成');
   console.log('- 桌面「Antigravity (自动汉化)」快捷方式:', fs.existsSync(desktopAutoLnk) ? desktopAutoLnk : '未创建');
-  console.log('- 桌面原「Antigravity」快捷方式已接管:', wrappedOrig ? '是' : '否');
+  for (const item of managedShortcuts) {
+    if (fs.existsSync(item.lnk)) {
+      console.log(`- ${item.name}原「Antigravity」快捷方式已接管:`, isWrappedShortcut(item.lnk) ? '是' : '否');
+    }
+  }
   process.exit(0);
 }
 
@@ -161,10 +176,16 @@ if (action === 'disable') {
       } catch (e) {}
     }
   }
-  if (fs.existsSync(desktopOrigBak)) {
-    fs.copyFileSync(desktopOrigBak, desktopOrigLnk);
-    fs.unlinkSync(desktopOrigBak);
-    console.log('✓ 已还原桌面原版 Antigravity 快捷方式');
+  for (const item of managedShortcuts) {
+    const bakToUse = fs.existsSync(item.bak) ? item.bak : (item.legacyBak && fs.existsSync(item.legacyBak) ? item.legacyBak : '');
+    if (bakToUse) {
+      try {
+        fs.copyFileSync(bakToUse, item.lnk);
+        fs.unlinkSync(bakToUse);
+        if (item.legacyBak && fs.existsSync(item.legacyBak)) fs.unlinkSync(item.legacyBak);
+        console.log(`✓ 已还原${item.name}原版 Antigravity 快捷方式`);
+      } catch (e) {}
+    }
   }
   console.log('[完成] 已关闭开机及启动自动汉化。');
   process.exit(0);
@@ -173,27 +194,34 @@ if (action === 'disable') {
 // enable
 const { installDir } = resolveAntigravityPaths(dirArgs);
 const antigravityExe = resolveAntigravityExecutable(installDir);
+if (!antigravityExe) {
+  console.error('[错误] 未找到 Antigravity.exe: ' + installDir);
+  process.exit(1);
+}
 const nodeExe = process.execPath;
 const applyScript = path.join(__dirname, 'apply-antigravity-zh.mjs');
 const dirFlag = dirArgs.length > 0 ? ` --dir "${installDir}"` : '';
 const dirFlagVbs = dirFlag.replace(/"/g, '""');
 
-// 检测原桌面快捷方式中的启动参数（如 --remote-debugging-port=0）
+// 迁移旧版桌面 .orig.lnk.bak 备份命名并提取原快捷方式参数（如 --remote-debugging-port=0）
 let preservedArgs = '';
-const origInfo = readShortcutInfo(desktopOrigLnk);
-if (origInfo && origInfo.targetPath && origInfo.targetPath.toLowerCase().endsWith('antigravity.exe')) {
-  preservedArgs = origInfo.args || '';
-  if (!fs.existsSync(desktopOrigBak)) {
-    fs.copyFileSync(desktopOrigLnk, desktopOrigBak);
+for (const item of managedShortcuts) {
+  if (item.legacyBak && fs.existsSync(item.legacyBak) && !fs.existsSync(item.bak)) {
+    try { fs.renameSync(item.legacyBak, item.bak); } catch (e) {}
   }
-} else if (fs.existsSync(desktopOrigBak)) {
-  const bakInfo = readShortcutInfo(desktopOrigBak);
-  if (bakInfo && bakInfo.args) preservedArgs = bakInfo.args;
+  const curInfo = readShortcutInfo(item.lnk);
+  if (curInfo && curInfo.targetPath && curInfo.targetPath.toLowerCase().endsWith('antigravity.exe')) {
+    if (!preservedArgs && curInfo.args) preservedArgs = curInfo.args;
+    if (!fs.existsSync(item.bak)) {
+      try { fs.copyFileSync(item.lnk, item.bak); } catch (e) {}
+    }
+  } else if (!preservedArgs && fs.existsSync(item.bak)) {
+    const bakInfo = readShortcutInfo(item.bak);
+    if (bakInfo && bakInfo.args) preservedArgs = bakInfo.args;
+  }
 }
-const launchArgsFlag = preservedArgs
-  ? ` --launch-args "${preservedArgs.replace(/"/g, '\\"')}"`
-  : '';
-const launchArgsFlagVbs = launchArgsFlag.replace(/"/g, '""');
+
+const preservedArgsVbs = preservedArgs ? (' ' + preservedArgs.replace(/"/g, '""')) : '';
 
 // 1. 生成开机登录静默自检脚本，优先通过 Windows 任务计划程序注册（不受电脑管家拦截）
 const startupContent = `Set shell = CreateObject("WScript.Shell")
@@ -214,15 +242,33 @@ try {
   console.log(`✓ 已启用 Windows Run 注册表开机自检 (${REG_RUN_KEY}\\${REG_VALUE_NAME})`);
 }
 
-// 2. 生成启动器脚本（每次打开 Antigravity 前极速校验并补丁，然后保留原参数启动桌面端）
+// 2. 生成两段式启动器脚本：
+//    - 先静默执行 --check-only（已汉化时约 100ms 返回 0，零感知秒开）
+//    - 仅当需要重新汉化时（返回非 0），最小化显示补丁进度窗口等待完成，随后由 wscript 直接以正常窗口拉起 Antigravity.exe
 const launchContent = `Set shell = CreateObject("WScript.Shell")
-cmd = """${nodeExe}"" ""${applyScript}""${dirFlagVbs} --if-needed --quiet --kill --launch${launchArgsFlagVbs}"
-shell.Run cmd, 0, False
+nodeExe = "${nodeExe}"
+applyJs = "${applyScript}"
+appExe = "${antigravityExe}"
+baseArgs = "${preservedArgsVbs}"
+
+extraArgs = ""
+For Each a In WScript.Arguments
+  extraArgs = extraArgs & " """ & a & """"
+Next
+
+checkCmd = """" & nodeExe & """ """ & applyJs & """${dirFlagVbs} --check-only"
+rc = shell.Run(checkCmd, 0, True)
+If rc <> 0 Then
+  patchCmd = """" & nodeExe & """ """ & applyJs & """${dirFlagVbs} --if-needed --kill"
+  shell.Run patchCmd, 7, True
+End If
+
+shell.Run """" & appExe & """" & baseArgs & extraArgs, 1, False
 `;
 fs.writeFileSync(launchVbs, launchContent, 'utf8');
 console.log('✓ 已生成自动汉化启动脚本:', launchVbs);
 
-// 3. 创建快捷方式并默认接管桌面 Antigravity.lnk
+// 3. 创建专用快捷方式并接管桌面/开始菜单/任务栏原有 Antigravity 快捷方式
 try {
   createShortcut(
     desktopAutoLnk,
@@ -251,22 +297,25 @@ if (fs.existsSync(startMenuProgramsDir)) {
   } catch (e) {}
 }
 
-if (!noReplaceShortcut && fs.existsSync(desktopOrigLnk)) {
-  try {
-    createShortcut(
-      desktopOrigLnk,
-      wscriptExe,
-      `"${launchVbs}"`,
-      antigravityExe,
-      __dirname,
-      'Antigravity（自动汉化启动）'
-    );
-    console.log('✓ 已接管桌面 Antigravity 快捷方式（原版已备份为 Antigravity.orig.lnk.bak）');
-  } catch (e) {
-    console.warn('[提示] 未能接管桌面原快捷方式:', e.message);
+if (!noReplaceShortcut) {
+  for (const item of managedShortcuts) {
+    if (!fs.existsSync(item.lnk)) continue;
+    try {
+      createShortcut(
+        item.lnk,
+        wscriptExe,
+        `"${launchVbs}"`,
+        antigravityExe,
+        __dirname,
+        'Antigravity（自动汉化启动）'
+      );
+      console.log(`✓ 已接管${item.name}原 Antigravity 快捷方式`);
+    } catch (e) {
+      console.warn(`[提示] 未能接管${item.name}快捷方式:`, e.message);
+    }
   }
 }
 
 console.log('\n[完成] 自动汉化已配置：');
-console.log('  1. 每次开机登录会自动通过 Windows 任务计划静默核对 app.asar，若因更新变回英文则自动重新汉化；');
-console.log('  2. 点击桌面「Antigravity」或「Antigravity (自动汉化)」启动时，都会在打开前毫秒级核对汉化状态再启动。');
+console.log('  1. 每次开机登录会通过 Windows 任务计划静默核对 app.asar，若因更新变回英文则自动重新汉化；');
+console.log('  2. 点击桌面/开始菜单/任务栏中的 Antigravity 图标启动时，都会先毫秒级核对汉化状态再打开客户端。');
