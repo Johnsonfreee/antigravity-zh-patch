@@ -31,7 +31,7 @@
      5. 注入汉化覆盖层、原生菜单、托盘、右键菜单等补丁并重新打包；
      6. 自动配置两重启动保障：
         - **Windows 任务计划开机/登录静默自检**：通过 Windows 任务计划程序 (`AntigravityZhAutoPatch`) 在每次登录时后台无弹窗检测 `app.asar`（避免被电脑管家拦截启动项）；已是最新汉化则 **毫秒级自动跳过**，若被官方更新覆盖则自动静默重新汉化；
-        - **桌面快捷方式自动接管**：自动接管桌面原 `Antigravity` 快捷方式（原快捷方式自动备份为 `Antigravity.orig.lnk.bak` 并保留原有启动参数），同时创建 `Antigravity (自动汉化)` 图标，每次启动前都会先核对/补丁再打开客户端。
+        - **桌面 / 开始菜单 / 任务栏快捷方式自动接管**：自动接管桌面、开始菜单与任务栏中的原 `Antigravity` 快捷方式（原快捷方式自动备份为 `Antigravity.orig.bak.lnk` 并保留原有启动参数），同时创建 `Antigravity (自动汉化)` 图标，每次启动前都会先毫秒级校验/必要时补丁，再以正常窗口拉起客户端。
 
 3. **更多自动启动选项**
    - 若只想新增 `Antigravity (自动汉化)` 快捷方式而不接管原有的 `Antigravity` 桌面图标，可运行：
@@ -79,7 +79,7 @@ npm run verify
 | `开启自动汉化.bat` | 一键开启「开机静默自检 + 每次启动前自动校验汉化」 |
 | `关闭自动汉化.bat` | 一键移除开机自检与自动汉化启动项 |
 | `一键还原英文.bat` | Windows 一键从 `app.asar.orig` 还原官方英文版 |
-| `apply-antigravity-zh.mjs` | 核心幂等汉化注入脚本（支持 `--if-needed` 极速校验、`--quiet`、`--kill`、`--launch`） |
+| `apply-antigravity-zh.mjs` | 核心幂等汉化注入脚本（支持 `--check-only` / `--if-needed` 极速校验、`--quiet`、`--kill`、`--launch`） |
 | `setup-autostart.mjs` | 自动启动项与快捷方式管理工具 |
 | `revert-antigravity-zh.mjs` | 还原英文版脚本 |
 | `locate-antigravity.mjs` | 跨设备安装路径自动探测、ASAR 头部校验与 `@electron/asar` 定位模块 |
